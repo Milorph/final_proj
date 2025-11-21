@@ -11,32 +11,32 @@ def run_deseq(counts, condition_labels):
     counts = np.asarray(counts, dtype=float)
     G, S = counts.shape
 
-    # convert condition_labels to 0/1
     cond = np.asarray(condition_labels)
     if cond.shape[0] != S:
         raise ValueError("condition_labels length must equal number of samples")
-
-    # map labels to 0/1
     unique = np.unique(cond)
-    if unique.size != 2:
-        raise ValueError("This minimal implementation supports exactly 2 conditions")
-
     cond_numeric = np.zeros_like(cond, dtype=float)
-    cond_numeric[cond == unique[1]] = 1.0  # baseline = unique[0], treatment = unique[1]
+    cond_numeric[cond == unique[1]] = 1.0 
 
     # design matrix: intercept + condition
     X = np.column_stack([
         np.ones(S, dtype=float),
         cond_numeric
     ])
+    
+    # Calculate Degrees of Freedom for Dispersion
+    # df = Num_Samples - Num_Parameters
+    num_params = X.shape[1]
+    df_resid = S - num_params
 
     # 1) size factors
     size_factors = estimate_size_factors(counts)
 
-    # 2) dispersions (With Group Pooling!)
-    # We pass condition_labels here so it knows how to group samples for variance calc
+    # 2) dispersions (With Empirical Bayes Shrinkage!)
     base_means, disp_final, disp_gw, disp_trend, disp_map, is_outlier = estimate_dispersions(
-        counts, size_factors, group_labels=condition_labels
+        counts, size_factors, 
+        group_labels=condition_labels,
+        degrees_of_freedom=df_resid  # <--- Pass df here
     )
 
     # 3) Wald test
@@ -44,7 +44,7 @@ def run_deseq(counts, condition_labels):
         counts, size_factors, disp_final, X
     )
 
-    # 4) LFC Shrinkage (Approximate Empirical Bayes)
+    # 4) LFC Shrinkage
     mask_stable = (base_means > np.percentile(base_means, 75)) & np.isfinite(log2_fc_mle)
     if mask_stable.sum() > 10:
         prior_std = np.std(log2_fc_mle[mask_stable])
