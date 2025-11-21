@@ -6,29 +6,7 @@ from deseq2_py.nbinom_wald import nb_glm_wald
 
 def run_deseq(counts, condition_labels):
     """
-    Minimal DESeq2-like pipeline for a 2-condition design:
-
-        design = ~ condition
-
-    Parameters
-    ----------
-    counts : (G, S) array-like
-        Raw counts (genes x samples)
-    condition_labels : list/array of length S
-        Each element is group label, e.g. "A" / "B" or 0 / 1
-
-    Returns
-    -------
-    result : dict of np.ndarray
-        {
-          "baseMean": ...,
-          "log2FoldChange": ...,
-          "lfcSE": ...,
-          "stat": ...,
-          "pvalue": ...,
-          "padj": ...,
-          "dispersion": ...
-        }
+    Minimal DESeq2-like pipeline for a 2-condition design.
     """
     counts = np.asarray(counts, dtype=float)
     G, S = counts.shape
@@ -55,19 +33,42 @@ def run_deseq(counts, condition_labels):
     # 1) size factors
     size_factors = estimate_size_factors(counts)
 
-    # 2) dispersions
+    # 2) dispersions (With Group Pooling!)
+    # We pass condition_labels here so it knows how to group samples for variance calc
     base_means, disp_final, disp_gw, disp_trend, disp_map, is_outlier = estimate_dispersions(
-        counts, size_factors
+        counts, size_factors, group_labels=condition_labels
     )
 
     # 3) Wald test
-    log2_fc, se_log2, wald, pvals, padj = nb_glm_wald(
+    log2_fc_mle, se_log2, wald, pvals, padj = nb_glm_wald(
         counts, size_factors, disp_final, X
     )
 
+    # 4) LFC Shrinkage (Approximate Empirical Bayes)
+    mask_stable = (base_means > np.percentile(base_means, 75)) & np.isfinite(log2_fc_mle)
+    if mask_stable.sum() > 10:
+        prior_std = np.std(log2_fc_mle[mask_stable])
+        if prior_std < 0.1: prior_std = 0.1 
+    else:
+        prior_std = 1.0 
+
+    prior_var = prior_std ** 2
+    
+    with np.errstate(divide='ignore', invalid='ignore'):
+        shrinkage_factor = 1.0 / (1.0 + (se_log2**2 / prior_var))
+    
+    shrinkage_factor[~np.isfinite(shrinkage_factor)] = 0.0
+    log2_fc_map = log2_fc_mle * shrinkage_factor
+
+    # 5) Outlier Handling
+    if is_outlier is not None:
+        pvals[is_outlier] = np.nan
+        padj[is_outlier] = np.nan
+
     result = {
         "baseMean": base_means,
-        "log2FoldChange": log2_fc,
+        "log2FoldChange": log2_fc_map,
+        "lfcMLE": log2_fc_mle,
         "lfcSE": se_log2,
         "stat": wald,
         "pvalue": pvals,

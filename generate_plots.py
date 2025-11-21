@@ -5,12 +5,23 @@ import matplotlib.pyplot as plt
 
 os.makedirs("plots", exist_ok=True)
 
-# ---- Load and merge data ----
-py = pd.read_csv("data/results_python.csv", index_col=0)
-r = pd.read_csv("data/deseq2_results.csv", index_col=0)
+# ===========================
+# 1. LOAD AND MERGE DATA
+# ===========================
+print("Loading results...")
+try:
+    py = pd.read_csv("data/results_python.csv", index_col=0)
+    r = pd.read_csv("data/deseq2_results.csv", index_col=0)
+except FileNotFoundError as e:
+    print(f"Error loading data: {e}")
+    print("Make sure you have run 'run_airway.py' and the R script first.")
+    exit(1)
 
-# Keep / rename DESeq2 (R) columns
-r = r[["baseMean", "log2FoldChange", "pvalue", "padj"]].rename(columns={
+# Fix: Select ONLY the columns we need from R to avoid 'lfcSE'/'stat' overlap errors
+r = r[["baseMean", "log2FoldChange", "pvalue", "padj"]]
+
+# Rename DESeq2 (R) columns for clarity
+r = r.rename(columns={
     "baseMean": "baseMean_r",
     "log2FoldChange": "log2FoldChange_r",
     "pvalue": "pvalue_r",
@@ -25,184 +36,191 @@ py = py.rename(columns={
     "padj": "padj_py",
 })
 
-# Inner join on gene ID
+# Inner join on gene ID to ensure we compare the same genes
 merged = py.join(r, how="inner")
+print(f"Merged {len(merged)} genes for comparison.")
 
-# For plotting: filter out ultra-low expression and insane LFC
+# Filter for cleaner plotting (remove extreme outliers that squash the axes)
 plot_df = merged.copy()
-plot_df = plot_df[np.abs(plot_df["log2FoldChange_py"]) < 10]
+plot_df = plot_df[np.abs(plot_df["log2FoldChange_py"]) < 12]
+plot_df = plot_df[np.abs(plot_df["log2FoldChange_r"]) < 12]
 
-# =====================
-#  PLOTTING FUNCTIONS
-# =====================
 
-def ma_plot(df, filename):
-    """MA plot with downsampling and clean style."""
-    mu = df["baseMean_py"]
-    lfc = df["log2FoldChange_py"]
-    padj = df["padj_py"]
+# ===========================
+# 2. PLOTTING FUNCTIONS
+# ===========================
 
-    # significance mask
-    sig = padj < 0.05
-    non_sig = ~sig
+def plot_ma_side_by_side(df, filename):
+    """
+    Generates two MA plots side-by-side.
+    Left: Python Port (MLE)
+    Right: Original R (likely Shrinkage)
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
+    
+    configs = [
+        (axes[0], "baseMean_py", "log2FoldChange_py", "padj_py", "Python Port (MLE - No Shrinkage)"),
+        (axes[1], "baseMean_r", "log2FoldChange_r", "padj_r", "Original DESeq2 (R)")
+    ]
 
-    # downsample to avoid smear
-    ns_idx = df[non_sig].sample(frac=0.15, random_state=42).index
+    for ax, x_col, y_col, padj_col, title in configs:
+        mu = df[x_col]
+        lfc = df[y_col]
+        padj = df[padj_col]
+        
+        # Mask for significance
+        sig = padj < 0.05
+        non_sig = ~sig
+        
+        # Downsample non-significant points to reduce file size and visual clutter
+        # We check if non_sig has any True values to avoid errors on empty slice
+        if non_sig.sum() > 0:
+            ns_idx = df[non_sig].sample(frac=0.15, random_state=42).index
+            # Plot non-significant (grey)
+            ax.scatter(np.log10(mu.loc[ns_idx] + 1e-8), lfc.loc[ns_idx], 
+                       s=3, alpha=0.15, color="gray", label="NS")
+        
+        # Plot significant (red)
+        if sig.sum() > 0:
+            ax.scatter(np.log10(mu[sig] + 1e-8), lfc[sig],
+                       s=6, alpha=0.6, color="red", label="padj < 0.05")
+        
+        ax.axhline(0, color="black", linewidth=1, linestyle="-")
+        ax.set_xlabel("log10(baseMean)")
+        
+        if ax == axes[0]:
+            ax.set_ylabel("log2 Fold Change")
+        
+        ax.set_title(title)
+        ax.legend(loc="upper right", fontsize=8)
+        ax.grid(True, alpha=0.2)
 
-    plt.figure(figsize=(6.5, 5.5))
-    # non-sig points (small, light)
-    plt.scatter(np.log10(mu.loc[ns_idx] + 1e-8),
-                lfc.loc[ns_idx],
-                s=3, alpha=0.18, color="gray")
-
-    # significant up/down
-    plt.scatter(np.log10(mu[sig & (lfc >= 0)] + 1e-8),
-                lfc[sig & (lfc >= 0)],
-                s=6, alpha=0.9, color="red", label="Up")
-    plt.scatter(np.log10(mu[sig & (lfc < 0)] + 1e-8),
-                lfc[sig & (lfc < 0)],
-                s=6, alpha=0.9, color="blue", label="Down")
-
-    plt.axhline(0, color="black", linewidth=1)
-    plt.xlabel("log10(baseMean)")
-    plt.ylabel("log2 fold change")
-    plt.title("MA plot (Python DESeq-like)")
-    plt.legend(fontsize=8, loc="upper right")
+    plt.suptitle("Comparison of MA Plots (Visualizing Shrinkage Differences)", fontsize=14)
     plt.tight_layout()
-
-    out = os.path.join("plots", filename)
-    plt.savefig(out, dpi=400)
-    plt.close()
-    print("Saved:", out)
-
-
-
-def volcano_plot(df, filename):
-    """Volcano plot for Python results only."""
-    lfc = df["log2FoldChange_py"]
-    pval = df["pvalue_py"]
-    padj = df["padj_py"]
-
-    neglogp = -np.log10(pval + 1e-300)
-    sig = padj < 0.05
-
-    plt.figure(figsize=(7, 6))
-    plt.scatter(lfc[~sig], neglogp[~sig], s=10, color="lightgray", alpha=0.5, label="NS")
-    plt.scatter(lfc[sig], neglogp[sig], s=12, color="darkred", alpha=0.8, label="padj<0.05")
-
-    # Optional reference lines
-    plt.axvline(-1, color="black", linestyle="--", linewidth=1)
-    plt.axvline(1, color="black", linestyle="--", linewidth=1)
-    plt.axhline(-np.log10(0.05), color="black", linestyle="--", linewidth=1)
-
-    plt.xlabel("log2 fold change")
-    plt.ylabel("-log10(p-value)")
-    plt.title("Volcano plot (Python DESeq-like)")
-    plt.legend(fontsize=8)
-    plt.tight_layout()
-
     out = os.path.join("plots", filename)
     plt.savefig(out, dpi=300)
     plt.close()
     print("Saved:", out)
 
 
-def dispersion_plot(df, filename):
-    """Simple dispersion vs mean plot for Python results."""
-    if "dispersion" not in df.columns:
-        print("No 'dispersion' column in results_python.csv — skipping dispersion plot.")
-        return
+def plot_volcano_side_by_side(df, filename):
+    """
+    Generates two Volcano plots side-by-side.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
+    
+    configs = [
+        (axes[0], "log2FoldChange_py", "pvalue_py", "padj_py", "Python Port"),
+        (axes[1], "log2FoldChange_r", "pvalue_r", "padj_r", "Original DESeq2 (R)")
+    ]
 
-    mu = df["baseMean_py"]
-    disp = df["dispersion"]
+    for ax, x_col, p_col, padj_col, title in configs:
+        lfc = df[x_col]
+        pval = df[p_col]
+        padj = df[padj_col]
+        
+        neglogp = -np.log10(pval + 1e-300)
+        sig = padj < 0.05
+        
+        # Plot all points
+        ax.scatter(lfc[~sig], neglogp[~sig], s=5, color="lightgray", alpha=0.5, rasterized=True)
+        ax.scatter(lfc[sig], neglogp[sig], s=8, color="darkred", alpha=0.6, rasterized=True)
+        
+        # Reference lines
+        ax.axvline(-1, color="k", linestyle="--", lw=0.5)
+        ax.axvline(1, color="k", linestyle="--", lw=0.5)
+        ax.axhline(-np.log10(0.05), color="k", linestyle="--", lw=0.5)
+        
+        ax.set_xlabel("log2 Fold Change")
+        if ax == axes[0]:
+            ax.set_ylabel("-log10(p-value)")
+        ax.set_title(title)
 
-    x = np.log10(mu + 1e-8)
-    y = np.log10(disp + 1e-8)
-
-    plt.figure(figsize=(7, 6))
-    plt.scatter(x, y, s=10, color="steelblue", alpha=0.5)
-    plt.xlabel("log10(baseMean)")
-    plt.ylabel("log10(dispersion)")
-    plt.title("Dispersion vs mean (Python)")
     plt.tight_layout()
-
     out = os.path.join("plots", filename)
     plt.savefig(out, dpi=300)
     plt.close()
     print("Saved:", out)
 
 
-def log2fc_corr(df, filename, label="All genes"):
-    """Python vs DESeq2 log2FC correlation scatter."""
-    df = df.dropna(subset=["log2FoldChange_py", "log2FoldChange_r"])
-    if df.empty:
-        print("No overlapping genes for correlation:", filename)
-        return
-
-    x = df["log2FoldChange_r"]
-    y = df["log2FoldChange_py"]
-    r = x.corr(y)
-
-    lim = max(np.max(np.abs(x)), np.max(np.abs(y)))
-    lim = max(lim, 0.5)  # avoid zero range
+def plot_log2fc_correlation(df, filename):
+    """
+    Direct scatter plot correlation of Log2FC values.
+    """
+    df_clean = df.dropna(subset=["log2FoldChange_py", "log2FoldChange_r"])
+    x = df_clean["log2FoldChange_r"]
+    y = df_clean["log2FoldChange_py"]
+    
+    # Pearson correlation
+    r_val = x.corr(y)
 
     plt.figure(figsize=(6, 6))
-    plt.scatter(x, y, s=8, alpha=0.4, color="navy")
-    plt.plot([-lim, lim], [-lim, lim], "r--", linewidth=1, label="y = x")
-
-    plt.xlim(-lim, lim)
-    plt.ylim(-lim, lim)
-    plt.xlabel("log2FC (DESeq2 R)")
-    plt.ylabel("log2FC (Python)")
-    plt.title(f"log2FC comparison ({label})\nr = {r:.3f}")
+    plt.scatter(x, y, s=5, alpha=0.3, color="purple")
+    
+    # Diagonal line
+    # Use min/max to set limits for diagonal line
+    all_vals = np.concatenate([x, y])
+    mn, mx = np.min(all_vals), np.max(all_vals)
+    
+    plt.plot([mn, mx], [mn, mx], 'k-', alpha=0.75, zorder=0, label="y=x")
+    
+    plt.xlabel("R log2FoldChange")
+    plt.ylabel("Python log2FoldChange")
+    plt.title(f"LFC Correlation\nPearson r = {r_val:.3f}")
     plt.legend()
-    plt.tight_layout()
-
+    plt.grid(True, alpha=0.3)
+    
     out = os.path.join("plots", filename)
     plt.savefig(out, dpi=300)
     plt.close()
     print("Saved:", out)
 
 
-def overlap_curve(df, filename):
-    """Top-N overlap of DE genes between Python and DESeq2."""
-    df = df.dropna(subset=["pvalue_py", "pvalue_r"])
-    Ns = [10, 20, 50, 100, 200, 500]
+def plot_overlap_curve(df, filename):
+    """
+    Plots the % overlap of the Top N genes as we increase N.
+    """
+    Ns = [10, 50, 100, 200, 500, 1000]
     overlaps = []
-
-    for N in Ns:
-        top_py = set(df.sort_values("pvalue_py").head(N).index)
-        top_r = set(df.sort_values("pvalue_r").head(N).index)
-        overlaps.append(len(top_py & top_r))
-
+    
+    df_clean = df.dropna(subset=["pvalue_py", "pvalue_r"])
+    
+    for n in Ns:
+        # Get top N genes by p-value for both tools
+        top_py = set(df_clean.sort_values("pvalue_py").head(n).index)
+        top_r = set(df_clean.sort_values("pvalue_r").head(n).index)
+        
+        # Calculate % intersection
+        if n > 0:
+            overlaps.append(len(top_py.intersection(top_r)) / n * 100)
+        else:
+            overlaps.append(0)
+        
     plt.figure(figsize=(6, 4))
-    plt.plot(Ns, overlaps, "-o", color="purple")
-    plt.xlabel("Top N genes")
-    plt.ylabel("Overlap count")
-    plt.title("Top-N overlap: Python vs DESeq2")
-    plt.grid(True, linestyle="--", alpha=0.5)
-    plt.tight_layout()
-
+    plt.plot(Ns, overlaps, marker='o', linestyle='-', color='green')
+    plt.ylim(0, 105)
+    plt.xlabel("Top N Genes (sorted by p-value)")
+    plt.ylabel("% Overlap")
+    plt.title("Agreement of Top Gene Lists")
+    plt.grid(True, alpha=0.3)
+    
     out = os.path.join("plots", filename)
     plt.savefig(out, dpi=300)
     plt.close()
     print("Saved:", out)
 
 
-# -------- RUN ALL PLOTS --------
+# ===========================
+# 3. RUN ALL PLOTS
+# ===========================
+print("Generating comparison plots...")
 
-# 1) Python-only diagnostics
-dispersion_plot(plot_df, "dispersion_vs_mean.png")
-ma_plot(plot_df, "ma_plot_python.png")
-volcano_plot(plot_df, "volcano_python.png")
+# Side-by-Side comparisons (Visual differences)
+plot_ma_side_by_side(plot_df, "compare_ma_plots.png")
+plot_volcano_side_by_side(plot_df, "compare_volcano_plots.png")
 
-# 2) Python vs DESeq2 comparisons
-log2fc_corr(merged, "log2fc_corr_all.png", label="all genes")
+# Statistical agreement (Validation)
+plot_log2fc_correlation(merged, "compare_lfc_correlation.png")
+plot_overlap_curve(merged, "compare_overlap_curve.png")
 
-# High-expression subset (like before, baseMean_r > 50)
-high = merged[merged["baseMean_r"] > 50]
-log2fc_corr(high, "log2fc_corr_high_expr.png", label="baseMean_r > 50")
-
-overlap_curve(merged, "overlap_curve.png")
-
-print("\nAll plots saved in ./plots")
+print("Done! Check the 'plots/' directory.")
