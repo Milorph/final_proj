@@ -17,10 +17,10 @@ except FileNotFoundError as e:
     print("Make sure you have run 'run_airway.py' and the R script first.")
     exit(1)
 
-# Fix: Select ONLY the columns we need from R to avoid 'lfcSE'/'stat' overlap errors
+# Select columns from R
 r = r[["baseMean", "log2FoldChange", "pvalue", "padj"]]
 
-# Rename DESeq2 (R) columns for clarity
+# Rename DESeq2 (R) columns
 r = r.rename(columns={
     "baseMean": "baseMean_r",
     "log2FoldChange": "log2FoldChange_r",
@@ -36,11 +36,11 @@ py = py.rename(columns={
     "padj": "padj_py",
 })
 
-# Inner join on gene ID to ensure we compare the same genes
+# Join
 merged = py.join(r, how="inner")
 print(f"Merged {len(merged)} genes for comparison.")
 
-# Filter for cleaner plotting (remove extreme outliers that squash the axes)
+# Filter for cleaner plotting (remove extreme visual outliers)
 plot_df = merged.copy()
 plot_df = plot_df[np.abs(plot_df["log2FoldChange_py"]) < 12]
 plot_df = plot_df[np.abs(plot_df["log2FoldChange_r"]) < 12]
@@ -52,14 +52,16 @@ plot_df = plot_df[np.abs(plot_df["log2FoldChange_r"]) < 12]
 
 def plot_ma_side_by_side(df, filename):
     """
-    Generates two MA plots side-by-side.
-    Left: Python Port (MLE)
-    Right: Original R (likely Shrinkage)
+    Generates two MA plots side-by-side with IDENTICAL scaling.
     """
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True, sharex=True)
+    
+    # Determine common Y-limits so plots look identical
+    y_min = min(df["log2FoldChange_py"].min(), df["log2FoldChange_r"].min())
+    y_max = max(df["log2FoldChange_py"].max(), df["log2FoldChange_r"].max())
     
     configs = [
-        (axes[0], "baseMean_py", "log2FoldChange_py", "padj_py", "Python Port (MLE - No Shrinkage)"),
+        (axes[0], "baseMean_py", "log2FoldChange_py", "padj_py", "Python Port (Shrinkage Applied)"),
         (axes[1], "baseMean_r", "log2FoldChange_r", "padj_r", "Original DESeq2 (R)")
     ]
 
@@ -68,15 +70,12 @@ def plot_ma_side_by_side(df, filename):
         lfc = df[y_col]
         padj = df[padj_col]
         
-        # Mask for significance
         sig = padj < 0.05
         non_sig = ~sig
         
-        # Downsample non-significant points to reduce file size and visual clutter
-        # We check if non_sig has any True values to avoid errors on empty slice
+        # Downsample non-significant points
         if non_sig.sum() > 0:
             ns_idx = df[non_sig].sample(frac=0.15, random_state=42).index
-            # Plot non-significant (grey)
             ax.scatter(np.log10(mu.loc[ns_idx] + 1e-8), lfc.loc[ns_idx], 
                        s=3, alpha=0.15, color="gray", label="NS")
         
@@ -94,8 +93,9 @@ def plot_ma_side_by_side(df, filename):
         ax.set_title(title)
         ax.legend(loc="upper right", fontsize=8)
         ax.grid(True, alpha=0.2)
+        ax.set_ylim(y_min, y_max) # Enforce same scale
 
-    plt.suptitle("Comparison of MA Plots (Visualizing Shrinkage Differences)", fontsize=14)
+    plt.suptitle("Comparison of MA Plots (Visualizing Shrinkage)", fontsize=14)
     plt.tight_layout()
     out = os.path.join("plots", filename)
     plt.savefig(out, dpi=300)
@@ -122,11 +122,9 @@ def plot_volcano_side_by_side(df, filename):
         neglogp = -np.log10(pval + 1e-300)
         sig = padj < 0.05
         
-        # Plot all points
         ax.scatter(lfc[~sig], neglogp[~sig], s=5, color="lightgray", alpha=0.5, rasterized=True)
         ax.scatter(lfc[sig], neglogp[sig], s=8, color="darkred", alpha=0.6, rasterized=True)
         
-        # Reference lines
         ax.axvline(-1, color="k", linestyle="--", lw=0.5)
         ax.axvline(1, color="k", linestyle="--", lw=0.5)
         ax.axhline(-np.log10(0.05), color="k", linestyle="--", lw=0.5)
@@ -146,27 +144,29 @@ def plot_volcano_side_by_side(df, filename):
 def plot_log2fc_correlation(df, filename):
     """
     Direct scatter plot correlation of Log2FC values.
+    FILTERS OUT NOISY LOW-COUNT GENES FOR CLEANER PLOT.
     """
-    df_clean = df.dropna(subset=["log2FoldChange_py", "log2FoldChange_r"])
+    # Filter: Only keep genes with meaningful counts (matches the table statistic)
+    # This removes the messy horizontal line at 0 caused by shrinkage differences on noise
+    df_clean = df[df["baseMean_py"] > 10].dropna(subset=["log2FoldChange_py", "log2FoldChange_r"])
+    
     x = df_clean["log2FoldChange_r"]
     y = df_clean["log2FoldChange_py"]
     
-    # Pearson correlation
     r_val = x.corr(y)
 
     plt.figure(figsize=(6, 6))
     plt.scatter(x, y, s=5, alpha=0.3, color="purple")
     
     # Diagonal line
-    # Use min/max to set limits for diagonal line
-    all_vals = np.concatenate([x, y])
-    mn, mx = np.min(all_vals), np.max(all_vals)
-    
+    mn, mx = -10, 10 
     plt.plot([mn, mx], [mn, mx], 'k-', alpha=0.75, zorder=0, label="y=x")
+    plt.xlim(mn, mx)
+    plt.ylim(mn, mx)
     
     plt.xlabel("R log2FoldChange")
     plt.ylabel("Python log2FoldChange")
-    plt.title(f"LFC Correlation\nPearson r = {r_val:.3f}")
+    plt.title(f"LFC Correlation (BaseMean > 10)\nPearson r = {r_val:.3f}")
     plt.legend()
     plt.grid(True, alpha=0.3)
     
@@ -178,19 +178,17 @@ def plot_log2fc_correlation(df, filename):
 
 def plot_overlap_curve(df, filename):
     """
-    Plots the % overlap of the Top N genes as we increase N.
+    Plots the % overlap of the Top N genes.
     """
-    Ns = [10, 50, 100, 200, 500, 1000]
+    Ns = [10, 50, 100, 200, 500, 1000, 2000]
     overlaps = []
     
     df_clean = df.dropna(subset=["pvalue_py", "pvalue_r"])
     
     for n in Ns:
-        # Get top N genes by p-value for both tools
         top_py = set(df_clean.sort_values("pvalue_py").head(n).index)
         top_r = set(df_clean.sort_values("pvalue_r").head(n).index)
         
-        # Calculate % intersection
         if n > 0:
             overlaps.append(len(top_py.intersection(top_r)) / n * 100)
         else:
@@ -215,11 +213,8 @@ def plot_overlap_curve(df, filename):
 # ===========================
 print("Generating comparison plots...")
 
-# Side-by-Side comparisons (Visual differences)
 plot_ma_side_by_side(plot_df, "compare_ma_plots.png")
 plot_volcano_side_by_side(plot_df, "compare_volcano_plots.png")
-
-# Statistical agreement (Validation)
 plot_log2fc_correlation(merged, "compare_lfc_correlation.png")
 plot_overlap_curve(merged, "compare_overlap_curve.png")
 
