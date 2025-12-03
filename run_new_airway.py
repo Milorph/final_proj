@@ -34,19 +34,30 @@ def main():
     plotMA(res, alpha=0.05)
     plt.savefig("plots/ma_plot.png")
     plt.close()
+    print("Saved MA plot")
 
     # Volcano Plot
     plotVolcano(res, alpha=0.05, lfc_threshold=1.0)
+    plt.ylim(0, 50)
     plt.savefig("plots/volcano_plot.png")
     plt.close()
+    print("Saved Volcano plot")
 
-    # PCA Plot (VST only)
-    vst_data = vst(counts_df.values)
+    # PCA Plot
+    size_factors = estimate_size_factors(counts_df.values)
+
+    vst_data = vst(
+        counts_df.values,
+        size_factors=size_factors,
+        dispersions=res["dispersion"]
+    )
+
     plotPCA(vst_data, sample_info=coldata_df, color_by="dex")
     plt.savefig("plots/pca_plot.png")
     plt.close()
+    print("Saved PCA plot")
 
-    print("Done! Check plots/ folder for visualizations.")
+    print("\nDone! Check plots/ folder.")
 
 
 if __name__ == "__main__":
