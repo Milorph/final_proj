@@ -1,3 +1,8 @@
 numpy
 scipy
 pandas
+statsmodels
+matplotlib
+patsy
+# Optional: uncomment for advanced features
+# pydeseq2
