@@ -526,7 +526,8 @@ def plotHeatmap(data, row_labels=None, col_labels=None,
             row_dist = pdist(data)
             row_link = linkage(row_dist, method='average')
             row_order = dendrogram(row_link, no_plot=True)['leaves']
-        except Exception:
+        except (ValueError, np.linalg.LinAlgError):
+            # Clustering failed (e.g., insufficient data or singular matrix)
             pass
     
     if cluster_cols and data.shape[1] > 1:
@@ -534,7 +535,8 @@ def plotHeatmap(data, row_labels=None, col_labels=None,
             col_dist = pdist(data.T)
             col_link = linkage(col_dist, method='average')
             col_order = dendrogram(col_link, no_plot=True)['leaves']
-        except Exception:
+        except (ValueError, np.linalg.LinAlgError):
+            # Clustering failed
             pass
     
     data_ordered = data[row_order, :][:, col_order]

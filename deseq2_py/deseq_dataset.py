@@ -96,6 +96,10 @@ class DESeqDataSet:
             self.counts_raw = np.asarray(counts, dtype=float)
             self.gene_names = np.array([f"gene_{i}" for i in range(counts.shape[0])])
             self.sample_names = np.array([f"sample_{i}" for i in range(counts.shape[1])])
+            import warnings
+            warnings.warn("Using auto-generated gene/sample names. "
+                         "Consider providing a DataFrame with proper identifiers.", 
+                         UserWarning)
         
         # Handle coldata
         if not isinstance(coldata, pd.DataFrame):

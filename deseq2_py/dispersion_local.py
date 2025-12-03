@@ -84,11 +84,12 @@ def fit_local_dispersion_trend(base_means, disp_gw, frac=0.2, it=3):
     y_smooth = smoothed[:, 1]
     
     # Create interpolation function
+    # Note: x_smooth is sorted from LOWESS output (return_sorted=True)
     def trend_fn(means):
         means = np.asarray(means, dtype=float)
         log_means = np.log10(np.maximum(means, 1e-8))
         
-        # Interpolate on log scale
+        # Interpolate on log scale (x_smooth is already sorted from LOWESS)
         log_disp = np.interp(log_means, x_smooth, y_smooth,
                             left=y_smooth[0], right=y_smooth[-1])
         

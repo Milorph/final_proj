@@ -119,11 +119,8 @@ def fpkm(counts, gene_lengths, size_factors=None):
     if gene_lengths.shape[0] != counts.shape[0]:
         raise ValueError("gene_lengths must have same length as number of genes")
     
-    if size_factors is None:
-        lib_sizes = counts.sum(axis=0)
-    else:
-        size_factors = np.asarray(size_factors, dtype=float)
-        lib_sizes = (counts / size_factors).sum(axis=0) * size_factors
+    # Calculate library sizes (use raw counts regardless of size factors for FPKM)
+    lib_sizes = counts.sum(axis=0)
     
     # FPKM = (count * 1e9) / (gene_length * library_size)
     # gene_length in bp, so divide by 1000 to get kb

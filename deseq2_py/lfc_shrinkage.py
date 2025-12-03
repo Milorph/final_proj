@@ -109,13 +109,17 @@ def apeglm_shrinkage(log2_fc_mle, se_log2, coef=1, prior_scale=None,
         # 
         # The log-posterior is:
         # -0.5 * (beta - beta_mle)^2 / sigma^2 - log(1 + (beta/scale)^2)
+        #
+        # Note: An analytical solution exists via solving a cubic equation, but
+        # numerical optimization is used here for robustness and simplicity.
+        # The optimization is fast as it's a 1D problem with a good starting point.
         
         def neg_log_posterior(beta):
             ll = -0.5 * (beta - beta_mle) ** 2 / (sigma ** 2)
             lp = -np.log(1 + (beta / prior_scale) ** 2)
             return -(ll + lp)
         
-        # Optimize starting from MLE
+        # Optimize starting from MLE (single-variable optimization is fast)
         result = minimize(neg_log_posterior, x0=beta_mle, method='L-BFGS-B',
                          options={'maxiter': max_iter, 'gtol': tol})
         
