@@ -356,7 +356,7 @@ My implementation would lead to the same biological conclusions as R DESeq2.
 
 - https://github.com/thelovelab/DESeq2/tree/devel/src
 
-## AI models
+## AI models used for porting
 
 Github Copilot
 GPT 5.1
