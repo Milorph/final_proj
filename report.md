@@ -8,9 +8,9 @@ This project was an attempt on rewriting DESeq2 using Python, Numpy, SciPy and s
 
 ---
 
-## What I Built
+## What I Built And Steps I took in order
 
-My main folder to port was (`deseq2_py`). Inside there are several files but they mostly try to cover these things from the original. 
+My main folder to port was (`deseq2_py`). Inside there are several files but they mostly try to cover these things from the original and I started building from the order listed below. Everything is built on top of the size factors estimation so thats where I had to start first.
 
 - **Size factor estimation** 
 - **Dispersion estimation** 
