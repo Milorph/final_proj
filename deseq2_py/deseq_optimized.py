@@ -45,18 +45,20 @@ def run_deseq(counts, condition_labels):
     )
 
     # 4) LFC Shrinkage
-    mask_stable = (base_means > np.percentile(base_means, 75)) & np.isfinite(log2_fc_mle)
+    mask_stable = (base_means > np. percentile(base_means, 75)) & np.isfinite(log2_fc_mle)
     if mask_stable.sum() > 10:
-        prior_std = np.std(log2_fc_mle[mask_stable])
-        if prior_std < 0.1: prior_std = 0.1 
+        prior_std = np. std(log2_fc_mle[mask_stable])
+        if prior_std < 0.1:
+            prior_std = 0.1
     else:
-        prior_std = 1.0 
+        prior_std = 1.0
 
     prior_var = prior_std ** 2
-    
+
     with np.errstate(divide='ignore', invalid='ignore'):
-        shrinkage_factor = 1.0 / (1.0 + (se_log2**2 / prior_var))
-    
+        # Correct shrinkage: shrink MORE when SE is large relative to prior
+        shrinkage_factor = prior_var / (prior_var + se_log2**2)
+
     shrinkage_factor[~np.isfinite(shrinkage_factor)] = 0.0
     log2_fc_map = log2_fc_mle * shrinkage_factor
 
