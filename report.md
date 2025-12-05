@@ -37,8 +37,7 @@ There were 8 test suite that I used to compare my Python implementation against 
 | Mean Absolute Error | - | - | **1.71e-15** |
 | Median Value | 0.9841 | 0.9841 | - |
 
-The size factors are essentially identical down to machine precision.  This was the easiest part to get right since the median-of-ratios algorithm is quite straightforward.
-
+My size factors port was equivalent to the Original R version using the same median of ratios algorithm
 ---
 
 ### Test 2: Dispersion Estimation
@@ -51,7 +50,7 @@ The size factors are essentially identical down to machine precision.  This was 
 | Median Relative Error | - | - | 0.266 |
 | Mean Relative Error | - | - | 0.347 |
 
-My dispersions are systematically lower than R's (68% of R's median value), and the correlation is only ~0.49 in log-space.  I'll explain why in the "What I did differently" section".
+My dispersions were lower than the Original R's version. I'll explain why in the "What I did differently" section but it was mostly due to using a different approach rather than R's iterative approach which would be too slow in Python than the C++ computations in the original.
 
 ---
 
@@ -74,8 +73,7 @@ Despite the dispersion differences, the final fold changes correlate at 0.95 for
 | Correlation (-log10 p) | - | - | **0.6897** |
 | Median -log10(p) | 0.63 | 0.53 | - |
 
-The -log10(p) correlation of 0.69 is lower than I'd like.  My p-values tend to be slightly more significant (higher -log10 p) than R's.  This is likely due to my lower dispersion estimates.
-
+The -log10(p) correlation is lower than I expected and my p values are slightly more than R's. But I believe its the downward effect of using a different dispersion estimates function
 ---
 
 ### Test 5: LFC Sign Agreement
@@ -84,7 +82,7 @@ The -log10(p) correlation of 0.69 is lower than I'd like.  My p-values tend to b
 | :--- | :--- | :--- | :--- |
 | Sign Agreement | - | - | **99.7%** |
 
-99.7% of genes have the same direction of change (up or down) between my implementation and R's. This was one of the better results.
+So the sign agreement was excellent between my comparisons as my python port resulted in 99.7% equivalent signs as the original R.
 
 ---
 
@@ -96,7 +94,7 @@ The -log10(p) correlation of 0.69 is lower than I'd like.  My p-values tend to b
 | RMSE | - | - | 0.3027 |
 | 95th Percentile Error | - | - | 0. 5193 |
 
-The mean absolute error of 0.11 log2 units means my fold changes are off by about 8% on average (2^0.11 ≈ 1.08). The 95th percentile error of 0.52 means 5% of genes have fold changes off by ~40% or more.
+The mean absolute error of 0.11 log2 units means my fold changes are off by about 8% on average (2^0.11 ≈ 1.08). And on the 95th percentile error it gave 0.52  which means that 5% of genes have fold changes off by ~40% or a bit more.
 
 ---
 
@@ -107,7 +105,7 @@ The mean absolute error of 0.11 log2 units means my fold changes are off by abou
 | Correlation (Pearson) | - | - | **1.0000** |
 | Mean Absolute Error | - | - | **0.0000** |
 
-The mean expression values are identical since they just depend on size factors which was a perfect match. 
+My basemen expression values are the same as original R because it depends on the size factors which were equivalent to the R's version.
 
 ---
 
@@ -118,7 +116,7 @@ The mean expression values are identical since they just depend on size factors 
 | Spearman (p-values) | - | - | **0.9874** |
 | Spearman (|LFC|) | - | - | **0.9595** |
 
-The difference was relatively small between the two which means that the ranking of genes is nearly identical.  Spearman correlation of 0.987 for p-values means if you sort genes by significance, you get almost the same order.
+The difference was relatively small between the two which means that the ranking of genes is nearly identical. The correlation of 0.987 for p-values means by sortin genese by signficance that you would get same order as R.
 
 ---
 
@@ -132,11 +130,11 @@ The difference was relatively small between the two which means that the ranking
 
 ### MA Plot Comparison
 
-The MA plot shows log2 fold change vs mean expression.  Red points are significant genes (padj < 0. 05). 
+The MA plot is a log2 fold change vs mean expression.  Red points are significant genes / values which are p < 0.05
 
 ![MA Plot Comparison](plots/compare_ma_plots.png)
 
-Although it may not look too similar, both the Python port and the original R DESeq2 did produce similar MA plots.  The overall shape is the same, significant genes appear in similar positions, and the "funnel" shape (more variance at low expression) is captured by both. 
+Booth the Python port and the original R DESeq2 did produce similar MA plots.  The overall shape is the same, significant genes appear in similar positions, and the "funnel" shape (more variance at low expression) is captured by both. Whats surprising is when looking at the standalone MA plot it had almost the same shape as the Original R but once it was compared to the R, its plotted against larger values and it shrinked.
 
 **My standalone MA plot:**
 
@@ -146,25 +144,25 @@ Although it may not look too similar, both the Python port and the original R DE
 
 ### Volcano Plot Comparison
 
-The volcano plot shows -log10(p-value) vs log2 fold change.
+The volcano plot is a -log10(p-value) vs log2 fold change graph.
 
 ![Volcano Plot Comparison](plots/compare_volcano_plots.png)
 
-The volcano plots are nearly identical.  Both implementations identify the same highly significant genes (top of the plot) and show similar distributions. 
+Volcano plots are similar in finding same highly signifcant genes, I had an issue with points appearing on the y axis line so I had to change the thresholds. 
 
 **Standalone Volcano plot:**
 
-![Volcano Plot](plots/volcano_plot. png)
+![Volcano Plot](plots/volcano_plot.png)
 
 ---
 
 ### Log2 Fold Change Correlation
 
-This is plotting my LFC values against R's LFC values for each gene. Extremely close in comparison. 
+This is plotting my LFC values against R's LFC values for each gene. This was extremely close in comparison. 
 
 ![LFC Correlation](plots/compare_lfc_correlation.png)
 
-Points fall along the diagonal line (y = x), which means my fold changes agree with R's. The correlation is 0.953 for genes with baseMean > 10.  There's some scatter, especially for genes with extreme fold changes, but overall the agreement is strong.
+The points fall along the diagonal line, which means that my fold changes agree with R's. The correlation is 0.953 for genes with baseMean > 10.  There's some scatter, especially for genes with extreme fold changes, but overall the agreement is strong.
 
 ---
 
